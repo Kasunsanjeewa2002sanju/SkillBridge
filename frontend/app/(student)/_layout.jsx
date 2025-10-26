@@ -62,12 +62,47 @@ export default function StudentTabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="courses"
+        options={{
+          href: null,
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
           tabBarIcon: ({ color, focused, size }) => (
             <Ionicons name={focused ? 'person' : 'person-outline'} size={size} color={color} />
           ),
+        }}
+      />
+      <Tabs.Screen
+        name="questionnaire"
+        options={{
+          href: null,
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
+        name="recommendations"
+        options={{
+          href: null,
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
+        name="purchased"
+        options={{
+          href: null,
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
+        name="progress"
+        options={{
+          href: null,
+          headerShown: false,
         }}
       />
     </Tabs>

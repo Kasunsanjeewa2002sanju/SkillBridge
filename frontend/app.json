@@ -1,19 +1,19 @@
 {
   "expo": {
     "scheme": "skillbridge",
-    "name": "SkillBridge",
+    "name": "",
     "slug": "frontend",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/logo/logo_light.png",
+    "icon": "./assets/logo/skillBridgeLogodesign.png",
     "userInterfaceStyle": "light",
     "extra": {
-      "API_BASE": "http://192.168.8.138:5000",
+      "API_BASE": "http://192.168.1.3:5000",
       "APP_THEME": "light"
     },
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/logo/logo_light.png",
+      "image": "./assets/logo/skillBridgeLogodesign.png",
       "resizeMode": "contain",
       "backgroundColor": "#667eea"
     },
@@ -22,13 +22,14 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-logo/logo_light.png",
+        "foregroundImage": "./assets/logo/skillBridgeLogodesign.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.ramzyhafeel.frontend"
     },
     "web": {
-      "favicon": "./assets/favlogo/logo_light.png"
+      "favicon": "./assets/logo/logo_light.png"
     },
     "plugins": [
       "expo-router"

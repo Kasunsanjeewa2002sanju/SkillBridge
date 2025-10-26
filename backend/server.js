@@ -17,12 +17,34 @@ app.get('/', (req, res) => {
 const authRoutes = require('./routes/authRoutes');
 app.use('/api/auth', authRoutes);
 
+// Student routes
+const studentRoutes = require('./routes/studentRoutes');
+app.use('/api/student', studentRoutes);
+
+// Mentor routes
+const mentorRoutes = require('./routes/mentorRoutes');
+app.use('/api/mentor', mentorRoutes);
+
 // Register course routes
 const courseRoutes = require('./routes/courseRoutes');
 app.use('/courses', courseRoutes);
 
+// Register skill routes
+const skillRoutes = require('./routes/skillRoutes');
+app.use('/skills', skillRoutes);
+// Register recruiter routes
+const recruiterRoutes = require('./routes/recruiterRoutes');
+app.use('/api/recruiter', recruiterRoutes);
 
+const recommendRoutes = require('./routes/recommendRoutes');
+app.use('/api', recommendRoutes);
 
+const chatRoutes = require('./routes/chatRoutes');
+app.use('/api/chat', chatRoutes);
+
+// Register purchase routes
+const purchaseRoutes = require('./routes/purchaseRoutes');
+app.use('/api/purchases', purchaseRoutes);
 
 // -------------------- server setup -------------------- //
 const PORT = process.env.PORT || 5000;

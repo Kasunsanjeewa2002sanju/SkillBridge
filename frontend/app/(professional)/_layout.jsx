@@ -1,14 +1,22 @@
-import React, { useEffect, useState } from 'react'
-import { Stack, router, Tabs } from 'expo-router'
+import React, { useEffect, useMemo, useState } from 'react'
+import { router, Tabs } from 'expo-router'
+import { useColorScheme, View, Text } from 'react-native'
 import { getSession } from '../../lib/session'
+import { themes } from '../../constants/colors'
 
 export default function ProfessionalLayout() {
   const [checked, setChecked] = useState(false)
+  const scheme = useColorScheme()
+
+  const theme = useMemo(() => (scheme === 'dark' ? themes.dark : themes.light), [scheme])
+
+  
+
 
   useEffect(() => {
     (async () => {
       const s = await getSession()
-      if (!s || s.role !== 'professional') {
+      if (!s || !['professional', 'mentor'].includes(s.role)) {
         router.replace('/login')
         return
       }
@@ -16,24 +24,100 @@ export default function ProfessionalLayout() {
     })()
   }, [])
 
-  if (!checked) return null
+  if (!checked) {
+    return <View style={{ flex: 1, backgroundColor: theme.background }} />
+  }
 
   return (
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.textSecondary,
-        tabBarStyle: { backgroundColor: theme.card, borderTopColor: theme.border },
+        tabBarShowLabel: false,
+        tabBarStyle: {
+          height: 56,
+          backgroundColor: theme.card,
+          borderTopColor: theme.border,
+          shadowColor: 'transparent',
+        },
+        tabBarItemStyle: { paddingVertical: 6 },
         headerStyle: { backgroundColor: theme.card },
         headerTitleStyle: { color: theme.text },
       }}
     >
-      <Tabs.Screen name="home" options={{ title: 'Home' }} />
-      <Tabs.Screen name="network" options={{ title: 'Network' }} />
-      <Tabs.Screen name="jobs" options={{ title: 'Jobs' }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          // Hide chat from the bottom tab bar, keep it navigable via router.push
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="home"
+        options={{
+          title: 'Home',
+          tabBarIcon: ({ color, focused }) => (
+            <IconLabel emoji="🏠" label="Home" color={color} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="badges"
+        options={{
+          title: 'Badges',
+          tabBarIcon: ({ color, focused }) => (
+            <IconLabel emoji="🏅" label="Badges" color={color} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="progress"
+        options={{
+          title: 'Progress',
+          tabBarIcon: ({ color, focused }) => (
+            <IconLabel emoji="📈" label="Progress" color={color} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="certificates"
+        options={{
+          title: 'Certificates',
+          tabBarIcon: ({ color, focused }) => (
+            <IconLabel emoji="🎓" label="Certs" color={color} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="reminders"
+        options={{
+          title: 'Reminders',
+          tabBarIcon: ({ color, focused }) => (
+            <IconLabel emoji="⏰" label="Remind" color={color} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ color, focused }) => (
+            <IconLabel emoji="👤" label="Profile" color={color} focused={focused} />
+          ),
+        }}
+      />
     </Tabs>
   )
 }
 
+
+// Lightweight icon+label for the tab bar using emoji (no extra deps)
+function IconLabel({ emoji, label, color, focused }) {
+  return (
+    <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ fontSize: 20, lineHeight: 20 }}>{emoji}</Text>
+      {focused ? <View style={{ width: 16, height: 3, backgroundColor: color, borderRadius: 9999, marginTop: 6 }} /> : null}
+    </View>
+  )
+}
 

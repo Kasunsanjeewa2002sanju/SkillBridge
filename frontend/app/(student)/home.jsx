@@ -1,13 +1,68 @@
-import React, { useEffect, useState } from 'react'
-import { View, Text, StyleSheet, useColorScheme } from 'react-native'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { View, Text, StyleSheet, useColorScheme, TouchableOpacity, ScrollView, ActivityIndicator, Image, Dimensions } from 'react-native'
+import Ionicons from '@expo/vector-icons/Ionicons'
+import { LinearGradient } from 'expo-linear-gradient'
 import { themes } from '../../constants/colors'
 import { getSession } from '../../lib/session'
 import { router } from 'expo-router'
+import axios from 'axios'
+import Constants from 'expo-constants'
+import { API_BASE as ENV_API_BASE } from '@env'
+// import SwipeBackWrapper from '../components/SwipeBackWrapper'
 
 export default function StudentHome() {
   const scheme = useColorScheme()
   const theme = scheme === 'dark' ? themes.dark : themes.light
   const [user, setUser] = useState(null)
+  const [preparing, setPreparing] = useState(false)
+  const [skills, setSkills] = useState([])
+  const [qAnswers, setQAnswers] = useState(null)
+  const [skillsLoading, setSkillsLoading] = useState(true)
+  const [activeOffer, setActiveOffer] = useState(0)
+  const [sliderWidth, setSliderWidth] = useState(Dimensions.get('window').width - 32)
+  const sliderRef = useRef(null)
+
+  const offerImages = [
+    require('../../assets/offers/1.png'),
+    require('../../assets/offers/2.png'),
+    require('../../assets/offers/3.png'),
+  ]
+
+  const handleOfferLayout = useCallback(
+    (event) => {
+      const width = event?.nativeEvent?.layout?.width
+      if (!width) return
+      sliderRef.current?.scrollTo({ x: activeOffer * width, animated: false })
+      if (Math.abs(width - sliderWidth) > 1) {
+        setSliderWidth(width)
+      }
+    },
+    [activeOffer, sliderWidth],
+  )
+
+  const handleOfferScroll = useCallback(
+    (event) => {
+      if (!sliderWidth) return
+      const offsetX = event?.nativeEvent?.contentOffset?.x || 0
+      const nextIndex = Math.round(offsetX / sliderWidth)
+      if (nextIndex !== activeOffer) {
+        setActiveOffer(nextIndex)
+      }
+    },
+    [activeOffer, sliderWidth],
+  )
+
+  useEffect(() => {
+    if (!sliderWidth || offerImages.length < 2) return undefined
+    const id = setInterval(() => {
+      setActiveOffer((prev) => {
+        const next = (prev + 1) % offerImages.length
+        sliderRef.current?.scrollTo({ x: next * sliderWidth, animated: true })
+        return next
+      })
+    }, 2000)
+    return () => clearInterval(id)
+  }, [sliderWidth, offerImages.length])
 
   useEffect(() => {
     (async () => {
@@ -21,25 +76,139 @@ export default function StudentHome() {
   }, [])
 
   const firstName = user?.fullName?.split(' ')?.[0] || 'Student'
+  const API_BASE = ENV_API_BASE || Constants?.expoConfig?.extra?.API_BASE || 'http://localhost:5000'
+
+  const getIdentity = () => {
+    if (user?.uid) {
+      return {
+        query: `userId=${encodeURIComponent(user.uid)}`,
+        payload: { userId: user.uid },
+      }
+    }
+    if (user?.email) {
+      return {
+        query: `email=${encodeURIComponent(user.email)}`,
+        payload: { email: user.email },
+      }
+    }
+    return null
+  }
+
+  const prepareRecommendations = async () => {
+    const identity = getIdentity()
+    if (!identity) {
+      return { redirect: '/(student)/questionnaire' }
+    }
+    try {
+      const response = await axios.get(`${API_BASE}/api/recommendations?${identity.query}`)
+      if (response?.data?.isStale) {
+        await axios.post(`${API_BASE}/api/recommend-skills`, { ...identity.payload, force: true })
+      }
+      return { redirect: '/(student)/recommendations' }
+    } catch (err) {
+      const status = err?.response?.status
+      const message = (err?.response?.data?.message || '').toLowerCase()
+      if (status === 404 && message.includes('questionnaire')) {
+        return { redirect: '/(student)/questionnaire' }
+      }
+      if (status === 404) {
+        await axios.post(`${API_BASE}/api/recommend-skills`, { ...identity.payload })
+        return { redirect: '/(student)/recommendations' }
+      }
+      return { error: err?.response?.data?.message || err?.message || 'Failed to prepare recommendations' }
+    }
+  }
+
+  const handleExplore = async () => {
+    if (!user || preparing) return
+    setPreparing(true)
+    const result = await prepareRecommendations()
+    setPreparing(false)
+    if (result?.redirect) {
+      router.push(result.redirect)
+    } else {
+      router.push('/(student)/recommendations')
+    }
+  }
+
+  const normalize = (s) => (s || '').toString().toLowerCase()
+  const scoreSkill = (skill, ans) => {
+    if (!skill || !ans) return 0
+    let score = 0
+    const domain = normalize(ans.domain)
+    const interests = Array.isArray(ans.interests) ? ans.interests.map(normalize) : []
+    const name = normalize(skill.skillName)
+    const desc = normalize(skill.description)
+    const cat = normalize(skill.category)
+    if (domain && cat === domain) score += 3
+    interests.forEach((i) => {
+      if (!i) return
+      if (cat.includes(i)) score += 2
+      if (name.includes(i)) score += 1
+      if (desc.includes(i)) score += 1
+    })
+    return score
+  }
+
+  useEffect(() => {
+    ;(async () => {
+      if (!user) return
+      setSkillsLoading(true)
+      try {
+        const idQuery = user?.uid ? `uid=${encodeURIComponent(user.uid)}` : user?.email ? `email=${encodeURIComponent(user.email)}` : ''
+        const results = await Promise.allSettled([
+          axios.get(`${API_BASE}/skills`),
+          idQuery ? axios.get(`${API_BASE}/api/student/questionnaire?${idQuery}`) : Promise.resolve({ data: null }),
+        ])
+        const [skillsRes, qRes] = results
+        setSkills(skillsRes.status === 'fulfilled' && Array.isArray(skillsRes.value?.data) ? skillsRes.value.data : [])
+        setQAnswers(qRes.status === 'fulfilled' ? (qRes.value?.data?.answers || null) : null)
+      } catch (e) {
+        setSkills([])
+        setQAnswers(null)
+      } finally {
+        setSkillsLoading(false)
+      }
+    })()
+  }, [user])
+
+  const relatedSkills = (() => {
+    if (!Array.isArray(skills) || skills.length === 0) return []
+    if (!qAnswers) return skills.slice(0, 6)
+    const scored = skills
+      .map((s) => ({ s, score: scoreSkill(s, qAnswers) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((x) => x.s)
+    if (scored.length > 0) return scored.slice(0, 6)
+    return skills.slice(0, 6)
+  })()
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={[styles.hero, { backgroundColor: theme.surface, borderColor: theme.border }]}> 
-        <View style={styles.badgeRow}>
-          <View style={[styles.badge, { backgroundColor: theme.tint + '22', borderColor: theme.tint + '55' }]}>
-            <Text style={[styles.badgeText, { color: theme.tint }]}>Welcome</Text>
+    // <SwipeBackWrapper style={{ flex: 1 }}>
+      <ScrollView
+        style={{ flex: 1, backgroundColor: theme.background }}
+        showsVerticalScrollIndicator={false}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.container}>
+        <View style={[styles.hero, { backgroundColor: theme.surface, borderColor: theme.border }]}> 
+          <View style={styles.badgeRow}>
+            <View style={[styles.badge, { backgroundColor: theme.tint + '22', borderColor: theme.tint + '55' }]}>
+              <Text style={[styles.badgeText, { color: theme.tint }]}>Welcome</Text>
+            </View>
           </View>
-        </View>
 
-        <Text style={[styles.greeting, { color: theme.text }]}>
-          {`Hi, ${firstName} 👋`}
-        </Text>
-        <Text style={[styles.headline, { color: theme.text }]}>
-          Let’s discover your next skill!
-        </Text>
-        <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-          Explore courses, practice challenges, and grow your career, one step at a time.
-        </Text>
+          <Text style={[styles.greeting, { color: theme.text }]}>
+            {`Hi, ${firstName} 👋`}
+          </Text>
+          <Text style={[styles.headline, { color: theme.text }]}>
+            Let’s discover your next skill!
+          </Text>
+          <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+            Explore courses, practice challenges, and grow your career, one step at a time.
+          </Text>
 
         <View style={styles.sparklesRow}>
           <View style={[styles.spark, { backgroundColor: theme.primary + '1A' }]} />
@@ -48,15 +217,137 @@ export default function StudentHome() {
         </View>
       </View>
 
-      <View style={styles.suggestions}>
-        <Text style={[styles.suggestionText, { color: theme.textSecondary }]}>Start by checking your courses or browse recommendations.</Text>
+      <View
+        style={[styles.offerSection, { backgroundColor: theme.surface, borderColor: theme.border }]}
+        onLayout={handleOfferLayout}
+      >
+        <View style={styles.offerHeader}>
+          <Text style={[styles.offerTitle, { color: theme.text }]}>Seasonal Offers</Text>
+          <Text style={[styles.offerSubtitle, { color: theme.textSecondary }]}>Unlock limited-time deals tailored for your growth journey.</Text>
+        </View>
+        <ScrollView
+          ref={sliderRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          decelerationRate="fast"
+          snapToAlignment="center"
+          onMomentumScrollEnd={handleOfferScroll}
+          scrollEventThrottle={16}
+        >
+          {offerImages.map((img, index) => (
+            <View
+              key={index}
+              style={[styles.offerCard, { width: sliderWidth }]}
+            >
+              <Image source={img} style={styles.offerImage} resizeMode="cover" />
+            </View>
+          ))}
+        </ScrollView>
+        <View style={styles.offerDots}>
+          {offerImages.map((_, index) => (
+            <View
+              key={index}
+              style={[
+                styles.offerDot,
+                { backgroundColor: index === activeOffer ? theme.primary : theme.border },
+              ]}
+            />
+          ))}
+        </View>
       </View>
-    </View>
+
+      <View style={styles.quickRow}>
+        <TouchableOpacity
+          style={[styles.quickChip, { backgroundColor: theme.surface, borderColor: theme.border }]}
+          onPress={() => router.push('/(student)/courses')}
+        >
+          <View style={[styles.quickIconWrap, { backgroundColor: theme.primary + '1A' }]}> 
+            <Ionicons name="book-outline" size={18} color={theme.primary} />
+          </View>
+          <Text style={[styles.quickLabel, { color: theme.text }]}>Courses</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.quickChip, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => router.push('/(student)/network')}>
+          <View style={[styles.quickIconWrap, { backgroundColor: theme.accent + '1A' }]}>
+            <Ionicons name="people-outline" size={18} color={theme.accent} />
+          </View>
+          <Text style={[styles.quickLabel, { color: theme.text }]}>Network</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.quickChip, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => router.push('/(student)/jobs')}>
+          <View style={[styles.quickIconWrap, { backgroundColor: theme.tint + '1A' }]}>
+            <Ionicons name="briefcase-outline" size={18} color={theme.tint} />
+          </View>
+          <Text style={[styles.quickLabel, { color: theme.text }]}>Jobs</Text>
+        </TouchableOpacity>
+      </View>
+
+      <LinearGradient colors={[theme.heroFrom, theme.heroTo]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.showcaseCard}>
+        <View style={styles.showcaseArt} />
+        <View style={styles.showcaseArtSm} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.showcaseTitle}>Level up faster</Text>
+          <Text style={styles.showcaseSubtitle}>Explore curated learning paths crafted for you</Text>
+        </View>
+        <TouchableOpacity
+          style={[styles.showcaseBtn, { backgroundColor: '#ffffff22', borderColor: '#ffffff44', opacity: preparing ? 0.7 : 1 }]}
+          onPress={handleExplore}
+          disabled={preparing}
+        >
+          <Ionicons name="arrow-forward" size={16} color="#fff" />
+          {preparing ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.showcaseBtnText}>Explore</Text>}
+        </TouchableOpacity>
+      </LinearGradient>
+
+      <View style={[styles.ctaCard, { backgroundColor: theme.card, borderColor: theme.border }]}> 
+        <View style={{ flex: 1 }}> 
+          <Text style={[styles.ctaTitle, { color: theme.text }]}>Get Personalized Skill Recommendations</Text>
+          <Text style={[styles.ctaSubtitle, { color: theme.textSecondary }]}>Take a quick 2-minute quiz so we can tailor suggestions to you.</Text>
+        </View> 
+        <TouchableOpacity
+          style={[styles.ctaButton, { backgroundColor: theme.primary }]}
+          activeOpacity={0.85}
+          onPress={() => router.push('/(student)/questionnaire')}
+        >
+          <Ionicons name="sparkles" size={18} color="#fff" />
+          <Text style={styles.ctaButtonText}>Start Quiz</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.relatedWrap}>
+        <View style={styles.relatedHeaderRow}>
+          <View style={[styles.relatedIcon, { backgroundColor: theme.accent + '1A', borderColor: theme.accent + '33' }]}>
+            <Ionicons name="flash-outline" size={16} color={theme.accent} />
+          </View>
+          <Text style={[styles.relatedTitle, { color: theme.text }]}>Related Skills</Text>
+        </View>
+        {skillsLoading ? (
+          <ActivityIndicator />
+        ) : relatedSkills.length === 0 ? (
+          <Text style={[styles.relatedEmpty, { color: theme.textSecondary }]}>No skills to show</Text>
+        ) : (
+          <View style={styles.relatedList}>
+            {relatedSkills.map((sk) => (
+              <View key={sk.id} style={[styles.relatedItem, { backgroundColor: theme.skillCardBg, borderColor: theme.skillCardBorder }]}> 
+                <View style={styles.relatedItemIcon}>
+                  <Ionicons name="flash" size={14} color={theme.tint} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.relatedItemTitle, { color: theme.text }]} numberOfLines={1}>{sk.skillName}</Text>
+                  <Text style={[styles.relatedItemMeta, { color: theme.textSecondary }]} numberOfLines={1}>{sk.category} • {sk.difficulty} • {sk.duration}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+      </View>
+      </ScrollView>
+    // </SwipeBackWrapper>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, paddingTop: 42 },
+  container: { padding: 16, paddingTop: 42, paddingBottom: 40 },
   hero: {
     borderRadius: 16,
     borderWidth: 1,
@@ -77,8 +368,82 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 14, marginTop: 8 },
   sparklesRow: { flexDirection: 'row', gap: 8, marginTop: 16 },
   spark: { width: 14, height: 14, borderRadius: 10 },
-  suggestions: { marginTop: 18 },
-  suggestionText: { fontSize: 13 },
+  suggestions: { marginTop: 0 },
+  suggestionText: { fontSize: 0 },
+  quickRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  quickChip: { flex: 1, borderWidth: 1, borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  quickIconWrap: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  quickLabel: { fontSize: 13, fontWeight: '700' },
+  showcaseCard: { marginTop: 16, borderRadius: 18, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12, overflow: 'hidden',
+    shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 6 },
+  showcaseArt: { position: 'absolute', right: -20, top: -20, width: 120, height: 120, borderRadius: 60, backgroundColor: '#ffffff22' },
+  showcaseArtSm: { position: 'absolute', right: 30, bottom: -10, width: 60, height: 60, borderRadius: 30, backgroundColor: '#ffffff18' },
+  showcaseTitle: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  showcaseSubtitle: { color: '#fff', opacity: 0.9, fontSize: 13, marginTop: 6 },
+  showcaseBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1 },
+  showcaseBtnText: { color: '#fff', fontWeight: '800' },
+  ctaCard: {
+    marginTop: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  ctaTitle: { fontSize: 16, fontWeight: '800' },
+  ctaSubtitle: { fontSize: 13, marginTop: 6 },
+  ctaButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  ctaButtonText: { color: '#fff', fontWeight: '800' },
+  relatedWrap: { marginTop: 18 },
+  relatedHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  relatedIcon: { width: 28, height: 28, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  relatedTitle: { fontSize: 16, fontWeight: '800' },
+  relatedList: { gap: 10 },
+  relatedItem: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 12, padding: 10 },
+  relatedItemIcon: { width: 26, height: 26, borderRadius: 8, backgroundColor: '#ffffff44', alignItems: 'center', justifyContent: 'center' },
+  relatedItemTitle: { fontSize: 14, fontWeight: '800' },
+  relatedItemMeta: { fontSize: 12, marginTop: 2 },
+  relatedEmpty: { fontSize: 13 },
+  offerSection: {
+    marginTop: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  offerHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 14,
+    gap: 4,
+  },
+  offerTitle: { fontSize: 18, fontWeight: '800' },
+  offerSubtitle: { fontSize: 13, lineHeight: 18 },
+  offerCard: {
+    height: 180,
+  },
+  offerImage: {
+    width: '100%',
+    height: '100%',
+  },
+  offerDots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+  },
+  offerDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
 })
 
 
